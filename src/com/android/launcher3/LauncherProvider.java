@@ -44,6 +44,7 @@ import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -58,7 +59,9 @@ import org.xmlpull.v1.XmlPullParserException;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class LauncherProvider extends ContentProvider {
     private static final String TAG = "Launcher.LauncherProvider";
@@ -66,7 +69,7 @@ public class LauncherProvider extends ContentProvider {
 
     private static final String DATABASE_NAME = "launcher.db";
 
-    private static final int DATABASE_VERSION = 15;
+    private static final int DATABASE_VERSION = 17;
 
     static final String OLD_AUTHORITY = "com.android.launcher2.settings";
     static final String AUTHORITY = ProviderConfig.AUTHORITY;
@@ -267,7 +270,12 @@ public class LauncherProvider extends ContentProvider {
 
             // Use default workspace resource if none provided
             if (workspaceResId == 0) {
-                workspaceResId = sp.getInt(DEFAULT_WORKSPACE_RESOURCE_ID, R.xml.default_workspace);
+                TelephonyManager tm = (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
+                if (tm.getPhoneType() == TelephonyManager.PHONE_TYPE_NONE) {
+                    workspaceResId = sp.getInt(DEFAULT_WORKSPACE_RESOURCE_ID, R.xml.default_workspace_no_telephony);
+                } else {
+                    workspaceResId = sp.getInt(DEFAULT_WORKSPACE_RESOURCE_ID, R.xml.default_workspace);
+                }
             }
 
             // Populate favorites table with initial favorites
@@ -613,7 +621,12 @@ public class LauncherProvider extends ContentProvider {
                 }
 
                 // Add default hotseat icons
-                loadFavorites(db, R.xml.update_workspace);
+                TelephonyManager tm = (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
+                if (tm.getPhoneType() == TelephonyManager.PHONE_TYPE_NONE) {
+                    loadFavorites(db, R.xml.update_workspace_no_telephony);
+                } else {
+                    loadFavorites(db, R.xml.update_workspace);
+                }
                 version = 9;
             }
 
@@ -674,6 +687,72 @@ public class LauncherProvider extends ContentProvider {
                 } finally {
                     db.endTransaction();
                 }
+            }
+
+            // This was the old L2-based Trebuchet's version. Do steps that come after version 12 
+            // (Launcher2's original version) so the new things get added, but skip the intermediate
+            // workspaceScreens updates (addWorkspacesTable() takes care of that)
+
+            if (version == 16) {
+                Log.w(TAG, "Found pre-11 Trebuchet, preparing update");
+
+                // With the new shrink-wrapped and re-orderable workspaces, it makes sense
+                // to persist workspace screens and their relative order.
+                mMaxScreenId = 0;
+
+                // This will never happen in the wild, but when we switch to using workspace
+                // screen ids, redo the import from old launcher.
+                sJustLoadedFromOldDb = true;
+
+                addWorkspacesTable(db);
+
+                Cursor c = null;
+                long screenId = -1;
+                try {
+                    c = db.rawQuery("SELECT max(screen) FROM favorites", null);
+                    if (c != null && c.moveToNext()) {
+                        screenId = c.getLong(0);
+                    }
+                    if (c != null) {
+                        c.close();
+                    }
+                } catch (SQLException ex) {
+                    Log.e(TAG, ex.getMessage(), ex);
+                }
+
+
+                db.beginTransaction();
+                try {
+                    // Insert new column for holding widget provider name
+                    db.execSQL("ALTER TABLE favorites " +
+                            "ADD COLUMN appWidgetProvider TEXT;");
+                    db.execSQL("ALTER TABLE favorites " +
+                            "ADD COLUMN modified INTEGER NOT NULL DEFAULT 0;");
+                    // Create workspaces for the migrated things
+                    if (screenId > 0) {
+                        for (int sId = 0; sId <= screenId; sId++) {
+                            db.execSQL("INSERT INTO workspaceScreens (_id, screenRank) " +
+                                    "VALUES (" + (sId+1) + ", " + sId + ")");
+                        }
+                    }
+                    // Adjust hotseat format
+                    db.execSQL("UPDATE favorites SET screen=cellX WHERE container=-101;");
+                    db.setTransactionSuccessful();
+                    version = 17;
+                } catch (SQLException ex) {
+                    // Old version remains, which means we wipe old data
+                    Log.e(TAG, ex.getMessage(), ex);
+                } finally {
+                    db.endTransaction();
+                }
+            }
+
+
+            // Artificially inflate the version to make sure we're fully up to date
+            // after a possible 10.2-Trebuchet migration
+
+            if (version == 15) {
+                version = 17;
             }
 
             if (version != DATABASE_VERSION) {
@@ -1023,6 +1102,10 @@ public class LauncherProvider extends ContentProvider {
 
                 final int depth = parser.getDepth();
 
+                final HashMap<Long, ItemInfo[][]> occupied = new HashMap<Long, ItemInfo[][]>();
+                LauncherModel model = LauncherAppState.getInstance().getModel();
+                AtomicBoolean deleteItem = new AtomicBoolean();
+
                 int type;
                 while (((type = parser.next()) != XmlPullParser.END_TAG ||
                         parser.getDepth() > depth) && type != XmlPullParser.END_DOCUMENT) {
@@ -1074,6 +1157,18 @@ public class LauncherProvider extends ContentProvider {
                     values.put(LauncherSettings.Favorites.SCREEN, screen);
                     values.put(LauncherSettings.Favorites.CELLX, x);
                     values.put(LauncherSettings.Favorites.CELLY, y);
+
+                    ItemInfo info = new ItemInfo();
+                    info.container = container;
+                    info.spanX = a.getInt(R.styleable.Favorite_spanX, 1);
+                    info.spanY = a.getInt(R.styleable.Favorite_spanY, 1);
+                    info.cellX = a.getInt(R.styleable.Favorite_x, 0);
+                    info.cellY = a.getInt(R.styleable.Favorite_y, 0);
+                    info.screenId = a.getInt(R.styleable.Favorite_screen, 0);
+
+                    if (!model.checkItemPlacement(occupied, info, deleteItem)) {
+                        continue;
+                    }
 
                     if (LOGD) {
                         final String title = a.getString(R.styleable.Favorite_title);
@@ -1161,7 +1256,22 @@ public class LauncherProvider extends ContentProvider {
                             added = false;
                         }
                     }
-                    if (added) i++;
+                    if (added) {
+                        i++;
+                    } else {
+                        long containerIndex = info.screenId;
+                        if (info.container == LauncherSettings.Favorites.CONTAINER_HOTSEAT) {
+                            occupied.get((long) LauncherSettings.Favorites.CONTAINER_HOTSEAT)
+                            [(int) info.screenId][0] = null;
+                        } else {
+                            ItemInfo[][] screens = occupied.get(info.screenId);
+                            for (int gridX = info.cellX; gridX < (info.cellX+info.spanX); gridX++) {
+                                for (int gridY = info.cellY; gridY < (info.cellY+info.spanY); gridY++) {
+                                    screens[gridX][gridY] = null;
+                                }
+                            }
+                        }
+                    }
                     a.recycle();
                 }
             } catch (XmlPullParserException e) {

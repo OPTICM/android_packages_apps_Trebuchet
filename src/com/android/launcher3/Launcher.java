@@ -2127,6 +2127,10 @@ public class Launcher extends Activity
         return false;
     }
 
+    void enterAllAppsOverviewMode() {
+        mAppsCustomizeContent.enterOverviewMode();
+    }
+
     @Override
     public boolean onSearchRequested() {
         startSearch(null, false, null, true);
@@ -2348,6 +2352,9 @@ public class Launcher extends Activity
     @Override
     public void onBackPressed() {
         if (isAllAppsVisible()) {
+            if (isClingsEnabled()) {
+                dismissAllAppsCling(null);
+            }
             if (mAppsCustomizeContent.isInOverviewMode()) {
                 mAppsCustomizeContent.exitOverviewMode(true);
             } else {
@@ -3056,6 +3063,23 @@ public class Launcher extends Activity
         AppsCustomizePagedView.ContentType contentType = mAppsCustomizeContent.getContentType();
         showAppsCustomizeHelper(animated, springLoaded, contentType);
     }
+
+    public void showAllAppsCling() {
+        if (isClingsEnabled() &&
+                !mSharedPrefs.getBoolean(Cling.ALL_APPS_CLING_DISMISSED_KEY, false) &&
+                !skipCustomClingIfNoAccounts() ) {
+            Cling cling = (Cling) findViewById(R.id.all_apps_cling);
+            View pageIndicator = mAppsCustomizeLayout.findViewById(R.id.page_indicator);
+            cling.setPunchThroughForView(pageIndicator);
+            if (cling != null) {
+                cling.bringToFront();
+            }
+            initCling(R.id.all_apps_cling, 0, true, true);
+        } else {
+            removeCling(R.id.all_apps_cling);
+        }
+    }
+
     private void showAppsCustomizeHelper(final boolean animated, final boolean springLoaded,
                                          final AppsCustomizePagedView.ContentType contentType) {
         if (mStateAnimation != null) {
@@ -3134,6 +3158,10 @@ public class Launcher extends Activity
                     // Hide the search bar
                     if (mSearchDropTargetBar != null) {
                         mSearchDropTargetBar.hideSearchBar(false);
+                    }
+
+                    if (contentType == AppsCustomizePagedView.ContentType.Applications) {
+                        showAllAppsCling();
                     }
                 }
             });
@@ -3600,7 +3628,7 @@ public class Launcher extends Activity
         final SearchManager searchManager =
                 (SearchManager) getSystemService(Context.SEARCH_SERVICE);
         ComponentName activityName = searchManager.getGlobalSearchActivity();
-        if (activityName != null) {
+        if (activityName != null && mWorkspace.shouldVoiceButtonProxyBeVisible()) {
             int coi = getCurrentOrientationIndexForGlobalIcons();
             sGlobalSearchIcon[coi] = updateButtonWithIconFromExternalActivity(
                     R.id.search_button, activityName, R.drawable.ic_home_search_normal_holo,
@@ -4611,6 +4639,11 @@ public class Launcher extends Activity
     public void dismissFolderCling(View v) {
         Cling cling = (Cling) findViewById(R.id.folder_cling);
         dismissCling(cling, null, Cling.FOLDER_CLING_DISMISSED_KEY,
+                DISMISS_CLING_DURATION, true);
+    }
+    public void dismissAllAppsCling(View v) {
+        Cling cling = (Cling) findViewById(R.id.all_apps_cling);
+        dismissCling(cling, null, Cling.ALL_APPS_CLING_DISMISSED_KEY,
                 DISMISS_CLING_DURATION, true);
     }
 

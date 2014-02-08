@@ -178,7 +178,7 @@ class DeviceProfile {
         // Hotseat
         hotseatIconSize = invDistWeightedInterpolate(minWidth, minHeight, points);
         hotseatIconSizePx = DynamicGrid.pxFromDp(hotseatIconSize, dm);
-        hotseatAllAppsRank = (int) (numColumns / 2);
+        hotseatAllAppsRank = (int) Math.ceil(numColumns / 2);
 
         // Calculate other vars based on Configuration
         updateFromConfiguration(resources, wPx, hPx, awPx, ahPx);
@@ -188,7 +188,7 @@ class DeviceProfile {
                 R.bool.preferences_interface_homescreen_search_default);
         searchBarSpaceMaxWidthPx = resources.getDimensionPixelSize(R.dimen.dynamic_grid_search_bar_max_width);
         searchBarHeightPx = resources.getDimensionPixelSize(R.dimen.dynamic_grid_search_bar_height);
-        searchBarSpaceWidthPx = Math.min(searchBarSpaceMaxWidthPx, widthPx);
+
         searchBarSpaceHeightPx = searchBarHeightPx + (searchBarVisible ? 2 * edgeMarginPx : 0);
 
         // Calculate the actual text height
@@ -249,6 +249,13 @@ class DeviceProfile {
         }
         allAppsNumCols = (availableWidthPx - padding.left - padding.right - 2 * edgeMarginPx) /
                 (iconSizePx + 2 * edgeMarginPx);
+        allAppsNumCols = (int) Math.min(numColumns, allAppsNumCols);
+
+        if (isPhone()) {
+            searchBarSpaceWidthPx = Math.min(searchBarSpaceMaxWidthPx, widthPx);
+        } else {
+            searchBarSpaceWidthPx = wPx - (isLandscape ? 3 : 1) * iconSizePx;
+        }
     }
 
     private float dist(PointF p0, PointF p1) {
@@ -536,7 +543,7 @@ public class DynamicGrid {
         // The tablet profile is odd in that the landscape orientation
         // also includes the nav bar on the side
         deviceProfiles.add(new DeviceProfile("Nexus 7",
-                575, 904,  6, 6,  (useLargeIcons ? 72 : 60), 14.4f,  7, (useLargeIcons ? 60 : 52)));
+                575, 904,  5, 5,  (useLargeIcons ? 72 : 60), 14.4f,  7, (useLargeIcons ? 60 : 52)));
         // Larger tablet profiles always have system bars on the top & bottom
         deviceProfiles.add(new DeviceProfile("Nexus 10",
                 727, 1207,  5, 8,  (useLargeIcons ? 80 : 64), 14.4f,  9, (useLargeIcons ? 64 : 56)));
