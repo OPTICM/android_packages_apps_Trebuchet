@@ -27,8 +27,9 @@
             android:id="@+id/transition_effect_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/transition_effect_button_text"
+            android:text="@string/scroll_effect_text"
             android:textAllCaps="true"
+            android:fontFamily="sans-serif-condensed"
             android:textColor="@android:color/white"
             android:layout_gravity="center_vertical"
             android:textSize="16sp" />
